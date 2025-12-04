@@ -1,46 +1,29 @@
 version: '3.7'
 
 services:
-  # 1. REDPANDA (The Streaming Engine - Kafka Compatible)
   redpanda:
-    image: docker.redpanda.com/redpanda/redpanda:latest
+    # --- CHANGED LINE BELOW ---
+    image: redpandadata/redpanda:latest 
     container_name: redpanda
-    command:
+     command:
       - redpanda start
-      - --smp 1  # Use only 1 CPU core (Friendly for Codespaces)
-      - --memory 1G 
+      - --smp 1
+      - --memory 1G
       - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      # CHANGE THIS LINE BELOW:
       - --advertise-kafka-addr internal://redpanda:9092,external://localhost:19092
     ports:
-      - 19092:19092 # External port for our Python scripts
-      - 9644:9644   # Admin port
+      - 19092:19092
+      - 9644:9644
     volumes:
       - redpanda_data:/var/lib/redpanda/data
 
-  # 2. REDPANDA CONSOLE (UI to see the data stream)
-  redpanda-console:
-    image: docker.redpanda.com/redpanda/console:latest
-    container_name: redpanda_console
-    restart: on-failure
-    entrypoint: /bin/sh
-    command: -c "echo \"kafka:\n  brokers: redpanda:9092\" > /tmp/config.yaml && /app/console"
-    ports:
-      - 8080:8080
-    depends_on:
-      - redpanda
-
-  # 3. MLFLOW (Model Registry)
   mlflow:
     image: ghcr.io/mlflow/mlflow:latest
     container_name: mlflow_server
     ports:
       - 5000:5000
-    environment:
-      - MLFLOW_BACKEND_STORE_URI=sqlite:///mlflow.db
-      - MLFLOW_DEFAULT_ARTIFACT_ROOT=./mlruns
     command: mlflow server --backend-store-uri sqlite:///mlflow.db --default-artifact-root ./mlruns --host 0.0.0.0
-    volumes:
-      - ./mlflow_data:/mlflow
 
 volumes:
   redpanda_data:

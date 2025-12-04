@@ -3,6 +3,8 @@ uvicorn
 pydantic
 requests
 pandas
-kafka-python  # Required to talk to Redpanda
-mlflow        # Required to log models
-protobuf==3.20.0 # Fixes common compatibility issues
+streamlit
+kafka-python
+mlflow
+kaggle
+protobuf==3.20.0

@@ -1,97 +1,82 @@
 import streamlit as st
 import requests
+import time
 import datetime
 
-# CONFIGURATION
 API_URL = "http://localhost:8000"
 
-st.set_page_config(page_title="Auto MLOps Control Center", layout="wide")
-st.title("🚛 Intelligent Fleet & Inventory Command Center")
+st.set_page_config(page_title="Auto MLOps Center", layout="wide")
+st.title("🚛 Intelligent Fleet Command Center")
 
-# --- FETCH LATEST DATA AT START ---
+# --- SIDEBAR: INVENTORY ---
+st.sidebar.header("🏭 Warehouse Manager")
 try:
-    response = requests.get(f"{API_URL}/")
-    current_inventory = response.json().get("inventory", {})
+    inv_resp = requests.get(f"{API_URL}/")
+    current_inventory = inv_resp.json().get("inventory", {})
 except:
-    st.error("⚠️ API is offline. Run 'python serving/app.py'")
+    st.error("API Offline. Run 'python serving/app.py'")
     current_inventory = {}
 
-# --- SIDEBAR: INVENTORY MANAGER ---
-st.sidebar.header("🏭 Warehouse Manager")
-
-# We iterate through the database items
 for part, qty in current_inventory.items():
     st.sidebar.markdown(f"**{part}**")
-    
-    # TRICK: Add 'qty' to the key. If API changes, the widget resets!
-    new_qty = st.sidebar.number_input(
-        f"Stock Level", 
-        value=qty, 
-        min_value=0, 
-        key=f"input_{part}_{qty}"  # <--- THIS IS THE MAGIC FIX
-    )
-    
-    # Update Button Logic
+    new_qty = st.sidebar.number_input("Qty", value=qty, min_value=0, key=f"in_{part}_{qty}")
     if st.sidebar.button(f"Update {part}", key=f"btn_{part}"):
-        try:
-            requests.post(f"{API_URL}/inventory/update", 
-                          params={"part_name": part}, 
-                          json={"quantity": new_qty})
-            st.toast(f"✅ Updated {part} to {new_qty}!")
-            import time
-            time.sleep(0.5) # Give API a moment
-            st.rerun() # Force page reload to show new values
-        except Exception as e:
-            st.sidebar.error(f"Failed: {e}")
+        requests.post(f"{API_URL}/inventory/update", params={"part_name": part}, json={"quantity": new_qty})
+        st.rerun()
 
 st.sidebar.markdown("---")
 
-# --- MAIN PAGE: VEHICLE ANALYSIS ---
-st.header("🔧 Manual Vehicle Inspection")
+# --- LIVE STREAM TOGGLE ---
+st.subheader("📡 Data Source Selector")
+mode = st.radio("Select Mode:", ["Manual Inspection", "Live NASA Data Stream"], horizontal=True)
 
-col1, col2, col3 = st.columns(3)
-with col1:
-    vehicle_id = st.text_input("Vehicle ID", value="TRUCK-100")
-with col2:
-    sensor_temp = st.slider("Engine Temperature (Sensor 3)", 300.0, 600.0, 511.6)
-with col3:
-    sensor_vib = st.slider("Vibration Level (Sensor 2)", 0.0, 1.0, 0.02)
-
-if st.button("🔍 Analyze Vehicle Health", use_container_width=True):
+if mode == "Manual Inspection":
+    col1, col2 = st.columns(2)
+    with col1:
+        temp = st.slider("Engine Temp (Sensor 3)", 300.0, 500.0, 350.0)
+    with col2:
+        vib = st.slider("Vibration (Sensor 2)", 0.0, 1.0, 0.02)
     
-    payload = {
-        "vehicle_id": vehicle_id,
-        "sensor_1": 6000,
-        "sensor_2": sensor_vib,
-        "sensor_3": sensor_temp,
-        "timestamp": datetime.datetime.now().isoformat()
-    }
+    if st.button("Analyze Vehicle"):
+        payload = {
+            "vehicle_id": "MANUAL-TEST", 
+            "sensor_1": 6000, 
+            "sensor_2": vib, 
+            "sensor_3": temp, 
+            "timestamp": datetime.datetime.now().isoformat()
+        }
+        resp = requests.post(f"{API_URL}/predict", json=payload).json()
+        
+        st.info(f"Action: {resp['action_taken']}")
+        st.metric("RUL", resp['predicted_rul'])
+        st.json(resp['inventory_snapshot'])
+
+elif mode == "Live NASA Data Stream":
+    st.info("Reading live data from 'serving/app.py'...")
+    
+    # Auto-Refresh Loop
+    placeholder = st.empty()
     
     try:
-        resp = requests.post(f"{API_URL}/predict", json=payload)
-        data = resp.json()
+        live_data = requests.get(f"{API_URL}/live_stream").json()
         
-        # Display Logic
-        st.divider()
-        c1, c2 = st.columns([1, 2])
-        
-        with c1:
-            st.metric("Predicted RUL", f"{data['predicted_rul']} Days")
-            if data['maintenance_required']:
-                st.error("MAINTENANCE REQUIRED")
-            else:
-                st.success("SYSTEM HEALTHY")
-                
-        with c2:
-            st.subheader("Action Log")
-            st.info(f"System Decision: {data['action_taken']}")
+        with placeholder.container():
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Vehicle ID", live_data['vehicle_id'])
             
-            # Show the "Live" inventory from the response
-            st.json(data['inventory_snapshot'])
+            sensors = live_data.get('sensors', {})
+            c2.metric("Temp", f"{sensors.get('temp', 0):.1f} °C")
+            c2.metric("Vibration", f"{sensors.get('vib', 0):.3f}")
+            
+            c3.metric("RUL", live_data.get('prediction', {}).get('rul', 'N/A'))
+            
+            st.warning(f"System Action: {live_data['action']}")
+            
+            st.subheader("Live Inventory Impact")
+            st.json(requests.get(f"{API_URL}/").json()['inventory'])
 
-        # NOTE TO USER
-        if data['maintenance_required']:
-            st.warning("⚠️ Part consumed! Click 'Rerun' or press 'R' to sync the Sidebar.")
-
+        time.sleep(1)
+        st.rerun()
+        
     except Exception as e:
-        st.error(f"Connection Error: {e}")
+        st.error(f"Waiting for stream... {e}")
